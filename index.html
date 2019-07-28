@@ -1,0 +1,223 @@
+<!doctype html>
+<!--
+ This page is shown when the extension button is clicked, because the
+ "browser_action" field in manifest.json contains the "default_popup" key with
+ value "popup.html".
+ -->
+<html>
+  <head>
+    <title>2048 AI</title>
+    <style type="text/css">
+      body {
+        margin: 10px;
+        white-space: nowrap;
+      }
+
+      h1 {
+        font-size: 20px;
+      }
+
+      .slider {
+          -webkit-appearance: none;
+          width: 50%;
+          height: 25px;
+          background: #d3d3d3;
+          outline: none;
+          opacity: 0.7;
+          -webkit-transition: .2s;
+          transition: opacity .2s;
+      }
+
+      .slider:hover {
+          opacity: 1;
+      }
+
+      .slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 25px;
+          height: 25px;
+          background: #4CAF50;
+          cursor: pointer;
+      }
+
+      #container {
+        display: flex;
+        justify-content: space-between;
+        position: relative;
+      }
+
+      #gridBox {
+        background-color: grey;
+        text-align: center;
+        position: absolute;
+        box-sizing: border-box;
+        -moz-box-sizing: border-box;
+        -webkit-box-sizing: border-box;
+        border: solid black 1px;
+        z-index: -1;
+      }
+
+      .tileBox {
+        background-color: white;
+        text-align: center;
+        position: absolute;
+        box-sizing: border-box;
+        -moz-box-sizing: border-box;
+        -webkit-box-sizing: border-box;
+        border: solid black 1px;
+        z-index: 1;
+        font-size: 20px;
+      }
+
+      #newGame {
+        width: 40px;
+        height: 40px;
+        right: 10px;
+        position: absolute;
+      }
+    </style>
+
+    <!--
+      - JavaScript and HTML must be in separate files: see our Content Security
+      - Policy documentation[1] for details and explanation.
+      -
+      - [1]: https://developer.chrome.com/extensions/contentSecurityPolicy
+    -->
+    <script src="jquery.js"></script>
+    
+  </head>
+
+  <body>
+    <center>
+      <h3 id="score" style="position: absolute; left: 10px; top: 0px; display: inline-block;">Score: 0</h3>
+      <h3 id="bestScore" style="position: absolute; left: 10px; top: 15px; display: inline-block;">Best: 0</h3>
+      <h3 id="fps" style="position: absolute; left: 10px; top: 30px; display: inline-block;">FPS: 0</h3>
+      <h1 style="display: inline-block; margin: 0; margin-bottom: 20px; margin-top: 5px;">2048</h1>
+      <img src="./new.jpg" id="newGame">
+      <div id="container">
+
+      </div>
+
+      <div class="slidecontainer">
+        <p style="display: inline-block;margin-right: 5px">Brain Population:</p><p id="brainText" style="display: inline-block;" data-editable>100</p>
+        <input type="range" min="0" max="100" value="40" class="slider" id="brainSlider">
+      </div>
+    </center>
+  </body>
+  <script src="2048.js"></script>
+  <script src="jquery.js"></script>
+  <script src="vector.js"></script>
+  <script src="matrix.js"></script>
+  <script src="nn.js"></script>
+  <script src="ga.js"></script>
+  <script>
+    // Numbers
+
+    // Brains
+    var brains = [];
+    var running = false;
+    var done = false;
+
+    function logslider(position) {
+      // position will be between 0 and 100
+      var minp = 0;
+      var maxp = 100;
+
+      // The result should be between 100 an 10000000
+      var minv = Math.log(10);
+      var maxv = Math.log(10000);
+
+      // calculate adjustment factor
+      var scale = (maxv-minv) / (maxp-minp);
+
+      return Math.floor(Math.exp(minv + scale*(position-minp)));
+    }
+
+    $("#brainSlider").mousemove(function (e) {
+      $("#brainText").text(logslider(parseInt($("#brainSlider").val())))
+
+      population = logslider(parseInt($("#brainSlider").val()));
+    })
+
+    // Update the genetic pool
+    function update() {
+      running = true;
+      brains = [];
+      for (var i = 0; i < population; i++) {
+        var copied = [];
+        for (var y = 0; y < gridSize; y++) {
+          copied.push([]);
+          for (var x = 0; x < gridSize; x++) {
+            copied[y].push({value: undefined})
+          }
+        }
+
+        for (var y = 0; y < gridSize; y++) {
+          for (var x = 0; x < gridSize; x++) {
+            copied[x][y].value = numbers[x][y].value
+          }
+        }
+
+        brains.push(new Brain(i, copied));
+      }
+
+      for (var i = 0; i < brains.length; i++) {
+        var brain = brains[i];
+
+        var data = [];
+        for (var y = 0; y < gridSize; y++) {
+          for (var x = 0; x < gridSize; x++) {
+            data.push(brain.numbers[x][y].value);
+          }
+        }
+
+        // Choose a direction based on the brain if alive
+        if (brain.alive) {
+          brain.think(data, i);
+        }
+      }
+
+      if (saved.length === population) {
+        updateGame(nextGeneration(brains, Brain, saved))
+        saved = [];
+        running = false;
+      }
+    }
+
+    var brainIndex = 0;
+
+    // Frames optimizer
+
+    var fps = 1000;
+    var now;
+    var then = Date.now();
+    var interval = 1000/fps;
+    var delta;
+    var fpsArray = [];
+    var averageArray;
+
+    function loop() {
+        requestAnimationFrame(loop);
+           
+        now = Date.now();
+        delta = now - then;
+           
+        if (delta > interval) {
+               
+            then = now - (delta % interval);
+
+            // Run the code
+            for (var i = 0; i < cycles; i++) {
+              if (!running && !done) {
+                update();
+              }
+            }
+            if (!done) {
+              draw(numbers)
+            }
+        }
+    }
+    loop();
+  </script>
+</html>
